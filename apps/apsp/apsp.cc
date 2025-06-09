@@ -3,6 +3,7 @@
 */
 
 #include <cstdio>
+#include <iostream>
 #include <cstdlib>
 #include <cstring>
 #include <pthread.h>
@@ -182,6 +183,8 @@ int main(int argc, char** argv)
 
    // Enable Graphite performance and energy models
    //CarbonEnableModels();
+
+   std::cout << "INIT ENDED!" << std::endl;
 
    //Spawn Threads
    for(int j = 1; j < P1; j++) {
