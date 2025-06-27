@@ -239,7 +239,7 @@ int main(int argc, char** argv)
          return 1;
       }
       N = 2000000;  //can be read from file if needed, this is a default upper limit
-      DEG = 16;     //also can be reda from file if needed, upper limit here again
+      DEG = 160;     //also can be reda from file if needed, upper limit here again
    }
 
    int lines_to_check=0;
@@ -365,6 +365,39 @@ int main(int argc, char** argv)
       init_weights(N, DEG, W, W_index);
    }
 
+   //Initialize data structures
+   initialize_single_source(D, Q, 0, N);
+
+   // Calculate and print maximum degree
+   int max_degree = 0;
+   int active_vertices = 0;
+   
+   for(int i = 0; i < N; i++) {
+      if(exist[i] == 1) {
+         active_vertices++;
+         int vertex_degree = 0;
+         for(int j = 0; j < DEG; j++) {
+            // For file input (select=1): check != INT_MAX
+            // For generated graphs (select=0): check != -1 and != INT_MAX
+            if(select == 1) {
+               if(W_index[i][j] != INT_MAX && W_index[i][j] < N) {
+                  vertex_degree++;
+               }
+            } else {
+               if(W_index[i][j] != INT_MAX && W_index[i][j] != -1 && W_index[i][j] < N) {
+                  vertex_degree++;
+               }
+            }
+         }
+         if(vertex_degree > max_degree) {
+            max_degree = vertex_degree;
+         }
+      }
+   }
+   
+   printf("Maximum degree in the graph: %d\n", max_degree);
+   printf("Active vertices: %d\n", active_vertices);
+
    //Synchronization Variables
    pthread_barrier_init(&barrier, NULL, P);
    pthread_mutex_init(&lock, NULL);
@@ -373,10 +406,7 @@ int main(int argc, char** argv)
       pthread_mutex_init(&locks[i], NULL);
       if(select==0)
          exist[i]=1;
-   } 
-
-   //Initialize data structures
-   initialize_single_source(D, Q, 0, N);
+   }
 
    //Thread Arguments
    for(int j = 0; j < P; j++) {
