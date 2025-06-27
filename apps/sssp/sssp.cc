@@ -398,6 +398,8 @@ int main(int argc, char** argv)
    printf("Maximum degree in the graph: %d\n", max_degree);
    printf("Active vertices: %d\n", active_vertices);
 
+   printf("Initialization phase completed successfully.\n");
+
    //Synchronization Variables
    pthread_barrier_init(&barrier, NULL, P);
    pthread_mutex_init(&lock, NULL);
