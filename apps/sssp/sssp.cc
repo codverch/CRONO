@@ -5,6 +5,8 @@
     Programs by Masab Ahmad (UConn)
 */
 
+// Usage: ./sssp 2 p2p-Gnutella30.txt p2p-Gnutella31.txt 
+
 #include <cstdio>
 #include <cstdlib>
 #include <pthread.h>
@@ -25,11 +27,13 @@ typedef struct
    int*      D;
    int**     W;
    int**     W_index;
+   int*      exist;        
    int*      d_count;
    int       tid;
    int       P;
    int       N;
    int       DEG;
+   int       input_id;     
    pthread_barrier_t* barrier;
 } thread_arg_t;
 
@@ -63,13 +67,14 @@ void* do_work(void* args)
 {
    volatile thread_arg_t* arg = (thread_arg_t*) args;
 
-   int tid                  = arg->tid;      //thread id
-   int P                    = arg->P;        //Max threads
-   int* D                   = arg->D;        //distabces
-   int** W                  = arg->W;        //edge weights
-   int** W_index            = arg->W_index;  //graph structure
-   const int N              = arg->N;        //Max vertices
-   const int DEG            = arg->DEG;      //edges per vertex
+   int tid                  = arg->tid;
+   int P                    = arg->P;
+   int* D                   = arg->D;        // Now points to correct D or D2
+   int** W                  = arg->W;        // Now points to correct W or W2  
+   int** W_index            = arg->W_index;  // Now points to correct W_index or W_index2
+   int* exist_arr           = arg->exist;    //Get the correct exist array
+   const int N              = arg->N;
+   const int DEG            = arg->DEG;
    int v = 0;
 
    int cntr = 0;
@@ -90,7 +95,7 @@ void* do_work(void* args)
          for(v=start;v<stop;v++)
          {
 
-            if(exist[v]==0)
+            if(exist_arr[v]==0)
                continue;
 
             for(int i = 0; i < DEG; i++)
@@ -208,41 +213,47 @@ void make_dot_graph(int **W,int **W_index,int *exist,int *D,int N,int DEG,const 
 
 int main(int argc, char** argv)
 {
-   if (argc < 3) {
-      printf ("Usage:  %s <thread-count> <input-file>\n",argv[0]);
-      return 1;
+   if (argc < 4) {
+   printf ("Usage:  %s <thread-count> <input-file1> <input-file2>\n",argv[0]);
+   return 1;
    }
+
    int N = 0;
    int DEG = 0;
    FILE *file0 = NULL;
+   FILE *file1 = NULL;  // Add second file
+   
 
-   const int select = atoi(argv[1]);
-   const int P = atoi(argv[2]);
-   if(select==0)
-   {
-      N = atoi(argv[3]);
-      DEG = atoi(argv[4]);
-      printf("\nGraph with Parameters: N:%d DEG:%d\n",N,DEG);
-   }
+   const int select = 1;              // Always file input mode
+   const int P = atoi(argv[1]);       // Thread count is now first argument
+
 
    if (!P) {
       printf ("Error:  Thread count must be a valid integer greater than 0.");
       return 1;
    }
 
-   if(select==1)
-   {
-      const char *filename = argv[3];
-      file0 = fopen(filename,"r");
+  
+      const char *filename1 = argv[2];
+      const char *filename2 = argv[3]; 
+
+      file0 = fopen(filename1,"r");
       if (!file0) {
-         printf ("Error:  Unable to open input file '%s'\n",filename);
+         printf ("Error:  Unable to open input file '%s'\n",filename1);
          return 1;
       }
-      N = 2000000;  //can be read from file if needed, this is a default upper limit
-      DEG = 160;     //also can be reda from file if needed, upper limit here again
-   }
 
-   int lines_to_check=0;
+      file1  = fopen(filename2,"r");
+      if (!file1) {
+         printf ("Error:  Unable to open input file '%s'\n",filename2);
+         fclose(file0);  // Clean up first file
+         return 1;
+      }
+
+      N = 2000000;  //can be read from file if needed, this is a default upper limit
+      DEG = 500;     //also can be reda from file if needed, upper limit here again
+   
+
    char c;
    int number0;
    int number1;
@@ -257,12 +268,39 @@ int main(int argc, char** argv)
 
    int* D;
    int* Q;
+   int* D2;     
+   int* Q2;     
+   int* exist2; 
+   int* id2;
+
+
+   if (posix_memalign((void**) &D2, 64, N * sizeof(int))) 
+   {
+      fprintf(stderr, "Allocation of memory failed\n");
+      exit(EXIT_FAILURE);
+   }
+   if( posix_memalign((void**) &Q2, 64, N * sizeof(int)))
+   {
+      fprintf(stderr, "Allocation of memory failed\n");
+      exit(EXIT_FAILURE);
+   }
+   if( posix_memalign((void**) &exist2, 64, N * sizeof(int)))
+   {
+      fprintf(stderr, "Allocation of memory failed\n");
+      exit(EXIT_FAILURE);
+   }
+   if(posix_memalign((void**) &id2, 64, N * sizeof(int)))
+   {
+      fprintf(stderr, "Allocation of memory failed\n");
+      exit(EXIT_FAILURE);
+   }
 
    if (posix_memalign((void**) &D, 64, N * sizeof(int))) 
    {
       fprintf(stderr, "Allocation of memory failed\n");
       exit(EXIT_FAILURE);
    }
+   
    if( posix_memalign((void**) &Q, 64, N * sizeof(int)))
    {
       fprintf(stderr, "Allocation of memory failed\n");
@@ -294,25 +332,42 @@ int main(int argc, char** argv)
       }
    }
 
+   int** W2 = (int**) malloc(N*sizeof(int*));
+   int** W_index2 = (int**) malloc(N*sizeof(int*));
+   for(int i = 0; i < N; i++)
+   {
+      int ret = posix_memalign((void**) &W2[i], 64, DEG*sizeof(int));
+      int re1 = posix_memalign((void**) &W_index2[i], 64, DEG*sizeof(int));
+      if (ret != 0 || re1!=0)
+      {
+         fprintf(stderr, "Could not allocate memory\n");
+         exit(EXIT_FAILURE);
+      }
+   }
+
    for(int i=0;i<N;i++)
    {
       for(int j=0;j<DEG;j++)
       {
          W[i][j] = INT_MAX;
          W_index[i][j] = INT_MAX;
+         W2[i][j] = INT_MAX;        
+         W_index2[i][j] = INT_MAX; 
       }
       exist[i]=0;
+      exist2[i]=0;  
       id[0] = 0;
+      id2[0] = 0;   
    }
 
-   if(select==1)
-   {
+   // Parse first input file
+      int lines_to_check1 = 0;
       for(c=getc(file0); c!=EOF; c=getc(file0))
       {
          if(c=='\n')
-            lines_to_check++;
+            lines_to_check1++;
 
-         if(lines_to_check>3)
+         if(lines_to_check1>3)
          {   
             int f0 = fscanf(file0, "%d %d", &number0,&number1);
             if(f0 != 2 && f0 != EOF)
@@ -320,7 +375,6 @@ int main(int argc, char** argv)
                printf ("Error: Read %d values, expected 2. Parsing failed.\n",f0);
                exit (EXIT_FAILURE);
             }
-            //printf("\n%d %d",number0,number1);
 
             if (number0 >= N) {
                printf ("Error:  Node %d exceeds maximum graph size of %d.\n",number0,N);
@@ -335,13 +389,11 @@ int main(int argc, char** argv)
                inter=0;
             }
 
-            // Make sure we haven't exceeded our maximum degree.
             if (inter >= DEG) {
                printf ("Error:  Node %d, maximum degree of %d exceeded.\n",number0,DEG);
                exit (EXIT_FAILURE);
             }
 
-            // We don't support parallel edges, so check for that and ignore.
             bool exists = false;
             for (int i = 0; i != inter; ++i) {
                if (W_index[number0][i] == number1) {
@@ -356,17 +408,67 @@ int main(int argc, char** argv)
                previous_node = number0;
             }
          }   
-      } //W[2][0] = -1;
-   }
+      }
 
-   //Generate a uniform random graph
-   if(select==0)
-   {
-      init_weights(N, DEG, W, W_index);
-   }
+      // Reset variables for second file
+      previous_node = -1;
+      inter = -1;
+      int lines_to_check2 = 0;
+
+      // Parse second input file  
+      for(c=getc(file1); c!=EOF; c=getc(file1))
+      {
+         if(c=='\n')
+            lines_to_check2++;
+
+         if(lines_to_check2>3)
+         {   
+            int f0 = fscanf(file1, "%d %d", &number0,&number1);
+            if(f0 != 2 && f0 != EOF)
+            {
+               printf ("Error: Read %d values, expected 2. Parsing failed.\n",f0);
+               exit (EXIT_FAILURE);
+            }
+
+            if (number0 >= N) {
+               printf ("Error:  Node %d exceeds maximum graph size of %d.\n",number0,N);
+               exit (EXIT_FAILURE);
+            }
+
+            exist2[number0] = 1; exist2[number1] = 1;  // Use second arrays
+            id2[number0] = number0;
+            if(number0==previous_node) {
+               inter++;
+            } else {
+               inter=0;
+            }
+
+            if (inter >= DEG) {
+               printf ("Error:  Node %d, maximum degree of %d exceeded.\n",number0,DEG);
+               exit (EXIT_FAILURE);
+            }
+
+            bool exists = false;
+            for (int i = 0; i != inter; ++i) {
+               if (W_index2[number0][i] == number1) {  // Use second arrays
+                  exists = true;
+                  break;
+               }
+            }
+
+            if (!exists) {
+               W2[number0][inter] = inter+1;           // Use second arrays
+               W_index2[number0][inter] = number1;     // Use second arrays
+               previous_node = number0;
+            }
+         }   
+      }
+
+   
 
    //Initialize data structures
    initialize_single_source(D, Q, 0, N);
+   initialize_single_source(D2, Q2, 0, N);
 
    // Calculate and print maximum degree
    int max_degree = 0;
@@ -406,24 +508,36 @@ int main(int argc, char** argv)
    for(int i=0; i<N; i++)
    {
       pthread_mutex_init(&locks[i], NULL);
-      if(select==0)
-         exist[i]=1;
    }
 
    //Thread Arguments
    for(int j = 0; j < P; j++) {
       thread_arg[j].local_min  = local_min_buffer;
       thread_arg[j].global_min = &global_min_buffer;
-      thread_arg[j].Q          = Q;
-      thread_arg[j].D          = D;
-      thread_arg[j].W          = W;
-      thread_arg[j].W_index    = W_index;
-      thread_arg[j].d_count    = &d_count;
       thread_arg[j].tid        = j;
       thread_arg[j].P          = P;
       thread_arg[j].N          = N;
       thread_arg[j].DEG        = DEG;
+      thread_arg[j].input_id   = (j < P/2) ? 0 : 1;
       thread_arg[j].barrier    = &barrier;
+      thread_arg[j].d_count    = &d_count;
+      
+      //  Assign different data structures based on input_id
+      if (thread_arg[j].input_id == 0) {
+         // First half of threads get first input data
+         thread_arg[j].Q          = Q;
+         thread_arg[j].D          = D;
+         thread_arg[j].W          = W;
+         thread_arg[j].W_index    = W_index;
+         thread_arg[j].exist      = exist;
+      } else {
+         // Second half of threads get second input data
+         thread_arg[j].Q          = Q2;
+         thread_arg[j].D          = D2;
+         thread_arg[j].W          = W2;
+         thread_arg[j].W_index    = W_index2;
+         thread_arg[j].exist      = exist2;
+      }
    }
 
    //for clock time
